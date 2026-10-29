@@ -11,9 +11,9 @@ namespace Zero\Mollie\Model;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\LocalizedException;
-use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Store\Model\ScopeInterface;
 use Psr\Log\LoggerInterface;
+use Zero\Core\Model\Http\JsonClient;
 
 /**
  * Mollie's Payments API v2: the API key as a bearer token (test_… or
@@ -24,7 +24,7 @@ class Api
     private const URL = 'https://api.mollie.com/v2/';
 
     public function __construct(
-        private readonly CurlFactory $curlFactory,
+        private readonly JsonClient $client,
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly EncryptorInterface $encryptor,
         private readonly LoggerInterface $logger,
@@ -99,32 +99,25 @@ class Api
             throw new LocalizedException(__('Mollie payments are not set up: the API key is missing.'));
         }
         try {
-            $curl = $this->curlFactory->create();
-            $curl->setTimeout($this->timeout);
-            $curl->addHeader('Authorization', 'Bearer ' . $key);
-            $curl->addHeader('Accept', 'application/json');
-            if ($method === 'POST') {
-                $curl->addHeader('Content-Type', 'application/json');
-                $curl->post(self::URL . $path, (string) json_encode($body, JSON_UNESCAPED_SLASHES));
-            } elseif ($method === 'DELETE') {
-                $curl->setOption(CURLOPT_CUSTOMREQUEST, 'DELETE');
-                $curl->get(self::URL . $path);
-            } else {
-                $curl->get(self::URL . $path);
-            }
-            $status = $curl->getStatus();
-            $answer = json_decode((string) $curl->getBody(), true);
+            ['status' => $status, 'body' => $answer] = $this->client->request(
+                $method,
+                self::URL . $path,
+                $body,
+                ['Authorization' => 'Bearer ' . $key],
+                $this->timeout
+            );
         } catch (\Throwable $e) {
             $this->logger->warning('Zero Mollie: ' . $path . ': ' . $e->getMessage());
             throw new LocalizedException(__('Mollie is not answering. Please try again in a minute.'), $e);
         }
-        if ($status < 200 || $status >= 300 || !is_array($answer)) {
+        // A cancelled payment (DELETE) answers 204 with nothing in the body.
+        if ($status < 200 || $status >= 300 || ($answer === null && $method !== 'DELETE')) {
             $detail = is_array($answer) ? (string) ($answer['detail'] ?? '') : '';
             $this->logger->warning(sprintf('Zero Mollie: %s: HTTP %d %s', $path, $status, $detail));
             throw new LocalizedException(__('Mollie refused the request: %1', $detail !== '' ? $detail : 'HTTP ' . $status));
         }
 
-        return $answer;
+        return $answer ?? [];
     }
 
     private function apiKey(?int $storeId): string
