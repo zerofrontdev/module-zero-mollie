@@ -25,6 +25,7 @@ use Magento\Quote\Api\Data\CartInterface;
 use Magento\Sales\Model\Order;
 use Magento\Store\Model\ScopeInterface;
 use Zero\Checkout\Controller\Checkout\Placeorder;
+use Zero\Checkout\Model\Money\MinorUnits;
 
 /**
  * Mollie's page (zero_mollie): the customer picks the method there (iDEAL,
@@ -181,13 +182,17 @@ class Payment extends AbstractMethod
     }
 
     /**
-     * An amount in the order's currency, as Mollie takes it.
+     * An amount in the order's currency, as Mollie takes it: a string with
+     * the currency's ISO 4217 decimals (JPY and ISK whole, the rest two;
+     * docs.mollie.com/docs/multicurrency).
      *
      * @return array{currency: string, value: string}
      */
     public static function amount(Order $order, float $amount): array
     {
-        return ['currency' => (string) $order->getOrderCurrencyCode(), 'value' => Api::value($amount)];
+        $currency = (string) $order->getOrderCurrencyCode();
+
+        return ['currency' => $currency, 'value' => MinorUnits::format($amount, $currency, MinorUnits::ISO)];
     }
 
     /**

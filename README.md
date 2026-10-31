@@ -48,12 +48,23 @@ A payment for another amount or currency than the order's leaves the order
 pending with a comment. **Refunds:** a credit memo from the invoice refunds
 online, in full or in part, in the order's currency.
 
+**Settlement** (Zero Checkout's redirect-payment flow): the return page, the
+webhook and the recheck cron update the order under its lock, on a freshly
+read order; while another process holds it the customer sees "processing". A
+payment Mollie reports for an order already cancelled is not booked: the order
+stays cancelled, with a comment and an admin notice (refund it at Mollie). The
+updater is registered for Zero Checkout > Payment Webhooks > Recheck Pending
+Payments (off by default), since it cancels only on `canceled`, `expired` or
+`failed`, never because nobody has paid yet.
+
 ## Settings
 
 Stores > Configuration > Sales > Payment Methods > **Mollie (Zero)**:
 Enabled, Title, **API Key** (encrypted; `test_…` for test payments),
 countries, sort order. The method shows only with a key. Not for orders made
 in the admin.
+
+What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

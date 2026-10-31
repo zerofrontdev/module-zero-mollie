@@ -45,15 +45,18 @@ class Webhook implements HttpPostActionInterface, CsrfAwareActionInterface
     public function execute()
     {
         $result = $this->rawFactory->create()->setContents('');
-        $reference = (string) $this->request->getParam('order', '');
+        $reference = $this->request->getParam('order', '');
+        $reference = is_scalar($reference) ? (string) $reference : '';
+        $paymentId = $this->request->getParam('id');
+        $paymentId = is_scalar($paymentId) ? (string) $paymentId : '';
         $order = $reference === '' ? null : $this->orderFactory->create()->loadByIncrementId($reference);
         if (!$order || !$order->getId() || $order->getPayment()?->getMethod() !== Payment::CODE
-            || $order->getPayment()->getAdditionalInformation(Payment::PAYMENT_ID) !== (string) $this->request->getParam('id')
+            || $order->getPayment()->getAdditionalInformation(Payment::PAYMENT_ID) !== $paymentId
         ) {
             return $result->setHttpResponseCode(200);
         }
         try {
-            $this->webhooks->handle($order, ['id' => (string) $this->request->getParam('id')]);
+            $this->webhooks->handle($order, ['id' => $paymentId]);
         } catch (LocalizedException) {
             return $result->setHttpResponseCode(503);
         }

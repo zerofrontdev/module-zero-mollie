@@ -10,7 +10,9 @@ namespace Zero\Mollie\Model;
 
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Sales\Model\Order;
+use Zero\Checkout\Model\RedirectPayment\LatePaymentInterface;
 use Zero\Checkout\Model\RedirectPayment\OrderPayment;
+use Zero\Checkout\Model\RedirectPayment\OrderUpdaterInterface;
 use Zero\Checkout\Model\RedirectPayment\ReturnResult;
 use Zero\Checkout\Model\RedirectPayment\WebhookHandlerInterface;
 
@@ -23,8 +25,11 @@ use Zero\Checkout\Model\RedirectPayment\WebhookHandlerInterface;
  * - canceled, expired, failed: cancelled;
  * - open: nobody paid yet (NOT_STARTED);
  * - pending: nothing yet.
+ * It cancels only on canceled, expired or failed, never on "open", so the
+ * recheck cron may ask it (RedirectPayment\Updaters). A cancelled order
+ * paid anyway is reported by latePayment(), read-only.
  */
-class OrderUpdater implements WebhookHandlerInterface
+class OrderUpdater implements WebhookHandlerInterface, OrderUpdaterInterface, LatePaymentInterface
 {
     public function __construct(
         private readonly Api $api,
@@ -33,10 +38,9 @@ class OrderUpdater implements WebhookHandlerInterface
     }
 
     /**
-     * @return string A ReturnResult state
-     * @throws LocalizedException When Mollie doesn't answer
+     * @inheritDoc
      */
-    public function update(Order $order): string
+    public function update(Order $order, array $params = []): string
     {
         $id = (string) $order->getPayment()?->getAdditionalInformation(Payment::PAYMENT_ID);
         if ($order->getPayment()?->getMethod() !== Payment::CODE || $id === '') {
@@ -67,6 +71,31 @@ class OrderUpdater implements WebhookHandlerInterface
     public function webhook(Order $order, array $data): void
     {
         $this->update($order);
+    }
+
+    /**
+     * A cancelled order's Mollie payment, asked from Mollie: paid or
+     * authorized, or not. Nothing on the order is changed, nothing is
+     * captured or cancelled at Mollie.
+     *
+     * @inheritDoc
+     */
+    public function latePayment(Order $order): ?array
+    {
+        $id = (string) $order->getPayment()?->getAdditionalInformation(Payment::PAYMENT_ID);
+        if ($order->getPayment()?->getMethod() !== Payment::CODE || $id === '') {
+            return null;
+        }
+        $payment = $this->api->getPayment($id, (int) $order->getStoreId());
+        if (!in_array((string) ($payment['status'] ?? ''), ['paid', 'authorized'], true)) {
+            return null;
+        }
+
+        return [
+            'id' => (string) ($payment['id'] ?? $id),
+            'amount' => (string) ($payment['amount']['value'] ?? ''),
+            'currency' => (string) ($payment['amount']['currency'] ?? ''),
+        ];
     }
 
     /**
